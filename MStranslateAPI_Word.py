@@ -104,7 +104,7 @@ def MStranslation_dynamicDictionary_API(
 
     # Add your subscription key and endpoint
     subscription_key = subscription_key
-    endpoint = "https://api.cognitive.microsofttranslator.com"  # 认知服务
+    endpoint = "https://api.cognitive.microsofttranslator.com"  
     # Add your location, also known as region. The default is global.
     # This is required if using a Cognitive Services resource.
     location = "eastasia"
@@ -346,14 +346,14 @@ def Word_MStranslation(
     # to get all section.header.paragraphs和secction.footer.paragraphs structure in dictionary and the text
     text_dict = {}
     for s, section in enumerate(doc.sections):
-        for p, para in enumerate(section.header.paragraphs):  # 每个section只有一个header;
+        for p, para in enumerate(section.header.paragraphs):  # each section has only one header;
             text_dict[(s, "header", p)] = para.text
-        for p, para in enumerate(section.footer.paragraphs):  # 每个section只有一个footer;
-            if para.text.isdigit() == False and para.text != "":  # 页脚中动态页码,或者空白;不予处理;
+        for p, para in enumerate(section.footer.paragraphs):  # each section only has one footer;
+            if para.text.isdigit() == False and para.text != "":  # footer that has dynamic page No, let it be
                 text_dict[(s, "footer", p)] = para.text
     # print(text_dict)
     text = list(text_dict.values())
-    # 建立字典,对应text_dict的每个key,与其value在text列表中的index之间的一一对应关系;
+    # Set up dictionary, with the key has the value that is the index No. inside the test list;   
     textindex_dict = {}
     for key in text_dict.keys():
         textindex_dict[key] = text.index(text_dict[key])
