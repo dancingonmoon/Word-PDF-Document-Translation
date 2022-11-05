@@ -6,4 +6,7 @@ it makes use of Microsoft Translation API (text translation), to translate Word 
 # PDF-Document Translation
 To translate PDF document, here it uses pymupdf libary, which doesn't support the text editing, so, to produce a new PDF is the solution, which get all of image copied, and get text in each span/line/block translated and insert back into new PDF with the same distribution the span text and the block text. similarly, it supports:    
 1. dynamic dictionary, which you could phrase and translated phrase into dictionary;
-2. the Chinese/Japanese/Korea language 
+2. the Chinese/Japanese/Korea language translation doesn't easily support the word position matches with translated word position, therefore, the code divides the translated block into sequence of translated span via the source span text distribution. sometimes, it divides not exactly as the nature language of the source text, but the character length remains the same distribution.
+# Usage:
+> import the word_translate and PDF_translate into your code, and the function has its explanation in each of its augment and output.
+> 
