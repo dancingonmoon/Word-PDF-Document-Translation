@@ -5,6 +5,8 @@ import docx
 import requests
 import math
 import re
+import time
+import fitz
 # import copy
 
 # define the function, input the text and ouput the translation:
@@ -228,7 +230,7 @@ def paragraph_runs_replace(
 
     return paragraph
 
-def Word_MStranslation(
+def Word_MStranslate(
     doc,
     dynamic_dict=False,
     lang_in='zh-Hans',
@@ -389,5 +391,187 @@ def Word_MStranslation(
         doc.save(filename)
     return doc
 
+
+def PDF_MStranslate(
+    input_path,
+    output_path,
+    lang_in="en",
+    lang_out="zh-Hans",
+    dynamic_dict=False,
+    subscription_key="pls input your MS_translation API Key",
+    image2txt=False,
+    txtbox_borderColor="gray",
+    out_font="cjk",
+):
+    """
+    1. Read each image, including inlined image, and write into a new PDF;
+    2. Read each block text, send into MS_Translation_API, to get trans_text list;
+    3. Set up dictionary with block/line/span sequence No. as the key, add the value with corresponding span_text, fontsize,color, length, etc.;
+    4. To divide trans_text according to the distribution of spen_ext;
+    5. To insert span_trans_text into block/line/span , starting form its original position, with same fontsize,color, etc.;
+    6. To save new PDF into out_path.
+    Args:
+        input_path: Source PDF file path;
+        output_path:the file path where to save output PDF;
+        lang_in: the source PDF language;
+        lang_out: the tranlated language of PDF;
+        dynamic_dict: dynamic dictionary used by MS_translation API, including special vocabulary, production name, persona name,etc.,for exampe:{'莫言':'Mr.Moyan'};default=False,to suggest no dynamic dictionary is in need;
+        subscription_key: MS_translation API Key;
+        image2txt: whether to repsent the image with text summary; default=False, to suggest putting original image;
+        txtbox_borderColor: the text box boarder color, the Default is "Gray", when txtbox_borderColor=False时,to suggest no text boarder is in need;
+        out_font: the fontname that is to display in output PDF, for chinese/japanese/korea, could be "cjk", for english, could 'helv', or anyone you like;
+    Out:
+        to produce new PDF, with the above operation, that is to copy image, and translate text; and save the PDF, close the new and old PDF files.
+
+    """
+
+    t0 = time.time()
+    # doc1 = fitz.open(sys.argv[1])
+    doc1 = fitz.open(input_path)
+    doc2 = fitz.open()
+    pink = fitz.utils.getColor("pink")  # give out the color RGB tuple
+    blue = fitz.utils.getColor("blue")
+    # green = fitz.utils.getColor("green")
+    if txtbox_borderColor != False:
+        txtbox_borderColor = fitz.utils.getColor(txtbox_borderColor)
+    else:
+        txtbox_borderColor = None
+    # gray = (0.9, 0.9, 0.9)
+
+    # to insert new font, to display multiple language:
+    font_cjk = fitz.Font(out_font)
+
+    for page1 in doc1:
+        # produce new PDF with same size
+        page2 = doc2.new_page(
+            -1, width=page1.mediabox_size[0], height=page1.mediabox_size[1]
+        )
+        # the text font we use
+        # fontname= the customized name you like; but the font comes from fontbuffer
+        page2.insert_font(fontname="cjk", fontbuffer=font_cjk.buffer)
+
+        # draw rectangle:
+        img = page2.new_shape()  # prepare /Contents object
+        # calculate /CropBox & displacement
+        disp = fitz.Rect(
+            page1.cropbox_position, page1.cropbox_position
+        )  # to get doc1 coordinate
+        croprect = page1.rect + disp  # add to get the displacement;
+
+        # draw original /CropBox rectangle
+        img.draw_rect(croprect)
+        img.finish(color=txtbox_borderColor, fill=None)
+
+        # get image write into PDF, translate, put back into PDF:
+        blocks = page1.get_text("dict")
+        blocks_ = page1.get_text("blocks")
+        # set up dictionary, to get span_text, fontsize, color, etc
+        span_attr = {}
+        text = []
+        for b, block in enumerate(blocks["blocks"]):
+            if block["type"] == 1:  # image
+                rect = fitz.Rect(block["bbox"]) 
+                if image2txt:
+                    a = fitz.TEXT_ALIGN_CENTER
+                    block_txt = blocks_[b][4]  # image description
+                    rect += disp
+                    img.draw_rect(rect)  # surround block rectangle
+                    img.finish(width=0.3, color=pink)
+                    img.insert_textbox(
+                        rect, buffer=block_txt, fontsize=8, color=pink, align=a
+                    )
+                else:
+                    page2.insert_image(
+                        rect,
+                        stream=block["image"],
+                    )
+
+            if block["type"] == 0:  # block为text
+                block_txt = blocks_[b][4]
+                # remove '\n'
+                block_txt = re.sub("\n", "", block_txt)
+                block_txt_len = len(block_txt)  
+                text.append(block_txt)
+
+                for l, line in enumerate(block["lines"]):
+                    for s, span in enumerate(line["spans"]):
+                        span_attr[(b, l, s, "size")] = span["size"]
+                        span_attr[(b, l, s, "font")] = span["font"]
+                        span_attr[(b, l, s, "color")] = span["color"]
+                        span_attr[(b, l, s, "origin")] = span["origin"]
+                        span_attr[(b, l, s, "text_index")] = len(text) - 1
+                        span_attr[(b, l, s, "span_block_ratio")] = (
+                            len(span["text"]) / block_txt_len
+                        )
+
+        try:
+            trans_text, response = MStranslation_dynamicDictionary_API(
+                text,
+                dynamic_dict=dynamic_dict,
+                lang_in=lang_in,
+                lang_out=lang_out,
+                subscription_key=subscription_key,
+            )
+        except:
+            print(response)
+
+        # distribute trans_text upon the span_text 
+
+        for b, block in enumerate(blocks["blocks"]):
+            if block["type"] == 0:  # text block
+                rect = fitz.Rect(block["bbox"])
+                # add dislacement of original /CropBox
+                rect += disp
+
+                img.draw_rect(rect)  # surround block rectangle
+                a = fitz.TEXT_ALIGN_LEFT
+
+                img.finish(width=0.3, color=txtbox_borderColor)
+
+                pointer = 0
+                for l, line in enumerate(block["lines"]):
+                    for s, span in enumerate(line["spans"]):
+                        span_transtxt_len = math.ceil(
+                            len(trans_text[span_attr[(b, l, s, "text_index")]])
+                            * span_attr[(b, l, s, "span_block_ratio")]
+                        )
+                        
+                        span_attr[(b, l, s, "trans_text")] = trans_text[
+                            span_attr[(b, l, s, "text_index")]
+                        ][pointer : pointer + span_transtxt_len]
+                        pointer = pointer + span_transtxt_len
+                       
+
+                        if rect.is_empty:  # do not rely on meaningful rects
+                            print(
+                                "skipping text of empty rect at ({}, {}) on page {}".format(
+                                    rect.x0, rect.y0, page1.number
+                                )
+                            )
+                        else:
+                            # dict gives out the color in format of sRGB, to convert it to RGB, with float(0,1):
+                            color = fitz.utils.sRGB_to_pdf(
+                                span_attr[(b, l, s, "color")]
+                            )
+                            point = fitz.Point(
+                                span_attr[(b, l, s, "origin")]
+                            )  
+                            
+                            img.insert_text(
+                                point=point,
+                                buffer=span_attr[(b, l, s, "trans_text")],
+                                fontname="cjk",
+                                fontsize=span_attr[(b, l, s, "size")],
+                                color=color,
+                            )  
+
+        img.commit()  # store /Contents of out page
+
+    # save output file
+    doc2.save(output_path, garbage=4, deflate=True, clean=True)
+    doc1.close()
+    doc2.close()  
+    t1 = time.time()
+    print("total time: {:.2f} sec".format((t1 - t0)))
 
 
